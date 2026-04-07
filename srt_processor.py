@@ -430,31 +430,54 @@ def process_srt_correction(
             parsed = parse_llm_response(response)
 
             if parsed:
-                # タイムスタンプは元のものを使用（位置ベースで強制復元）
-                # AIがインデックス番号を変更しても、順番で確実にマッチさせる
-                for j, entry in enumerate(parsed):
-                    if j < len(chunk):
-                        entry.start = chunk[j].start
-                        entry.end = chunk[j].end
-                        entry.index = chunk[j].index
+                # テキスト後処理（改行変換、3行以上防止）
+                for entry in parsed:
                     # リテラル "\n" を実際の改行に変換
                     entry.text = entry.text.replace("\\n", "\n")
                     # 3行以上防止: 改行が2つ以上ある場合は最初の1つだけ残す
                     text_lines = entry.text.split("\n")
                     if len(text_lines) > 2:
                         entry.text = text_lines[0] + "\n" + "".join(text_lines[1:])
-                # AIが返したエントリ数が元と違う場合、元のエントリ数に合わせる
-                if len(parsed) < len(chunk):
-                    # 校正済みエントリを先に追加（順序を維持）
-                    corrected_entries.extend(parsed)
-                    # 不足分は元のエントリをそのまま末尾に追加
-                    for k in range(len(parsed), len(chunk)):
-                        corrected_entries.append(chunk[k])
-                elif len(parsed) > len(chunk):
-                    # 超過分は無視（元のチャンク数に合わせる）
-                    corrected_entries.extend(parsed[:len(chunk)])
+
+                # タイムスタンプ復元: インデックスベースのマッチング
+                # LLM がエントリをスキップ・結合・並べ替えしても正確に復元できる
+                chunk_index_map = {e.index: e for e in chunk}
+                index_matched = sum(1 for e in parsed if e.index in chunk_index_map)
+
+                if index_matched >= len(parsed) * 0.5:
+                    # --- インデックスベース（推奨） ---
+                    # 校正済みエントリにタイムスタンプを復元
+                    corrected_map = {}
+                    for entry in parsed:
+                        if entry.index in chunk_index_map:
+                            orig = chunk_index_map[entry.index]
+                            entry.start = orig.start
+                            entry.end = orig.end
+                            corrected_map[orig.index] = entry
+
+                    # 元チャンクの順序で出力（不足分は原文で補完）
+                    for orig in chunk:
+                        if orig.index in corrected_map:
+                            corrected_entries.append(corrected_map[orig.index])
+                        else:
+                            corrected_entries.append(orig)
                 else:
-                    corrected_entries.extend(parsed)
+                    # --- 位置ベースのフォールバック ---
+                    # LLM がインデックスを振り直した場合（例: 常に1から開始）
+                    for j, entry in enumerate(parsed):
+                        if j < len(chunk):
+                            entry.start = chunk[j].start
+                            entry.end = chunk[j].end
+                            entry.index = chunk[j].index
+
+                    if len(parsed) < len(chunk):
+                        corrected_entries.extend(parsed)
+                        for k in range(len(parsed), len(chunk)):
+                            corrected_entries.append(chunk[k])
+                    elif len(parsed) > len(chunk):
+                        corrected_entries.extend(parsed[:len(chunk)])
+                    else:
+                        corrected_entries.extend(parsed)
             else:
                 # パース失敗時は元のエントリをそのまま使用
                 corrected_entries.extend(chunk)
