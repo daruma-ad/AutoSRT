@@ -415,19 +415,30 @@ def process_srt_correction(
             parsed = parse_llm_response(response)
 
             if parsed:
-                # タイムスタンプは元のものを使用（LLM が変更した場合の安全策）
-                chunk_map = {e.index: e for e in chunk}
-                for entry in parsed:
-                    if entry.index in chunk_map:
-                        entry.start = chunk_map[entry.index].start
-                        entry.end = chunk_map[entry.index].end
+                # タイムスタンプは元のものを使用（位置ベースで強制復元）
+                # AIがインデックス番号を変更しても、順番で確実にマッチさせる
+                for j, entry in enumerate(parsed):
+                    if j < len(chunk):
+                        entry.start = chunk[j].start
+                        entry.end = chunk[j].end
+                        entry.index = chunk[j].index
                     # リテラル "\n" を実際の改行に変換
                     entry.text = entry.text.replace("\\n", "\n")
                     # 3行以上防止: 改行が2つ以上ある場合は最初の1つだけ残す
                     text_lines = entry.text.split("\n")
                     if len(text_lines) > 2:
                         entry.text = text_lines[0] + "\n" + "".join(text_lines[1:])
-                corrected_entries.extend(parsed)
+                # AIが返したエントリ数が元と違う場合、元のエントリ数に合わせる
+                if len(parsed) < len(chunk):
+                    # 不足分は元のエントリをそのまま追加
+                    for k in range(len(parsed), len(chunk)):
+                        corrected_entries.append(chunk[k])
+                    corrected_entries.extend(parsed[:len(chunk)])
+                elif len(parsed) > len(chunk):
+                    # 超過分は無視（元のチャンク数に合わせる）
+                    corrected_entries.extend(parsed[:len(chunk)])
+                else:
+                    corrected_entries.extend(parsed)
             else:
                 # パース失敗時は元のエントリをそのまま使用
                 corrected_entries.extend(chunk)

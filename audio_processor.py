@@ -249,8 +249,15 @@ def sec_to_ppro_ticks(seconds: float) -> int:
     return int(round(seconds * PPRO_TICKS_PER_SECOND))
 
 
-def sec_to_timebase_frames(seconds: float, timebase: int) -> int:
-    """秒をフレーム数に変換"""
+def sec_to_timebase_frames(seconds: float, timebase: int, ntsc: bool = False) -> int:
+    """
+    秒をフレーム数に変換。
+    NTSC の場合は実際の FPS（例: 29.97）を使い、公称値（30）との
+    累積ドリフトを防止する。
+    """
+    if ntsc:
+        actual_fps = timebase * 1000.0 / 1001.0
+        return int(round(seconds * actual_fps))
     return int(round(seconds * timebase))
 
 
@@ -301,6 +308,9 @@ def rebuild_fcp_xml(
 
     元の XML 構造を尊重し、clipitem の in/out/start/end を
     有音区間に基づいて再計算する。
+
+    NTSC (29.97fps 等) 環境では実際の FPS でフレーム計算を行い、
+    pproTicks もフレーム境界に揃えることで累積ドリフトを防止する。
     """
     root = parse_fcp_xml(xml_bytes)
     timebase = get_timebase(root)
@@ -331,9 +341,9 @@ def rebuild_fcp_xml(
         for idx, seg in enumerate(sound_segments):
             new_clip = copy.deepcopy(template_clip)
 
-            # フレーム数計算
-            in_frame = sec_to_timebase_frames(seg.start_sec, timebase)
-            out_frame = sec_to_timebase_frames(seg.end_sec, timebase)
+            # フレーム数計算（NTSC 対応: 実際の FPS を使用）
+            in_frame = sec_to_timebase_frames(seg.start_sec, timebase, ntsc)
+            out_frame = sec_to_timebase_frames(seg.end_sec, timebase, ntsc)
             duration_frames = out_frame - in_frame
 
             start_frame = timeline_pos
@@ -353,23 +363,26 @@ def rebuild_fcp_xml(
             _set_xml_text(new_clip, "end", str(end_frame))
 
             # pproTicks の更新
+            # フレーム境界に揃えた秒数から計算し、フレーム番号との一貫性を保証
+            frame_aligned_in_sec = in_frame / actual_fps
+            frame_aligned_out_sec = out_frame / actual_fps
             _set_xml_text(
                 new_clip, "pproTicksIn",
-                str(sec_to_ppro_ticks(seg.start_sec))
+                str(sec_to_ppro_ticks(frame_aligned_in_sec))
             )
             _set_xml_text(
                 new_clip, "pproTicksOut",
-                str(sec_to_ppro_ticks(seg.end_sec))
+                str(sec_to_ppro_ticks(frame_aligned_out_sec))
             )
 
             track.append(new_clip)
             timeline_pos = end_frame
 
-    # sequence の duration を更新
+    # sequence の duration を更新（NTSC 対応）
     total_sound_duration = sum(s.duration for s in sound_segments)
     seq_dur_elem = root.find(".//sequence/duration")
     if seq_dur_elem is not None:
-        seq_dur_elem.text = str(sec_to_timebase_frames(total_sound_duration, timebase))
+        seq_dur_elem.text = str(sec_to_timebase_frames(total_sound_duration, timebase, ntsc))
 
     # XML をバイト列として出力
     result = etree.tostring(
