@@ -59,6 +59,8 @@ def parse_srt(srt_bytes: bytes) -> List[SubtitleEntry]:
     """
     # BOM 除去
     content = srt_bytes.decode("utf-8-sig", errors="replace")
+    # 改行コードを統一（\r\n や \r を \n に変換）
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
 
     entries: List[SubtitleEntry] = []
 
@@ -85,6 +87,9 @@ def _pysrt_time_to_str(t) -> str:
 
 def _manual_parse_srt(content: str) -> List[SubtitleEntry]:
     """正規表現ベースの SRT パーサー"""
+    # 改行コードを統一（LLM の応答に \r\n が含まれると境界検出が壊れるため）
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
+
     pattern = re.compile(
         r"(\d+)\s*\n"
         r"(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*\n"
@@ -305,16 +310,26 @@ def call_llm(
 # ---------------------------------------------------------------------------
 def parse_llm_response(response: str) -> List[SubtitleEntry]:
     """LLM の返答から SRT エントリをパースする"""
+    # 改行コードを統一（LLM が \r\n を返す場合がある）
+    cleaned = response.strip().replace("\r\n", "\n").replace("\r", "\n")
+
     # LLM の応答からコードブロックを除去
-    cleaned = response.strip()
-    if cleaned.startswith("```"):
+    # コードブロックが応答の先頭にない場合も対応
+    if "```" in cleaned:
         lines = cleaned.split("\n")
-        # 最初と最後の ``` 行を除去
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        cleaned = "\n".join(lines)
+        # ``` で囲まれた範囲を抽出
+        start_idx = None
+        end_idx = None
+        for i, line in enumerate(lines):
+            if line.strip().startswith("```") and start_idx is None:
+                start_idx = i
+            elif line.strip() == "```" and start_idx is not None:
+                end_idx = i
+                break
+        if start_idx is not None:
+            # 開始行（```srt 等）を除去
+            content_lines = lines[start_idx + 1:end_idx] if end_idx else lines[start_idx + 1:]
+            cleaned = "\n".join(content_lines)
 
     return _manual_parse_srt(cleaned)
 
