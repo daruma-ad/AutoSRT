@@ -430,10 +430,11 @@ def process_srt_correction(
                         entry.text = text_lines[0] + "\n" + "".join(text_lines[1:])
                 # AIが返したエントリ数が元と違う場合、元のエントリ数に合わせる
                 if len(parsed) < len(chunk):
-                    # 不足分は元のエントリをそのまま追加
+                    # 校正済みエントリを先に追加（順序を維持）
+                    corrected_entries.extend(parsed)
+                    # 不足分は元のエントリをそのまま末尾に追加
                     for k in range(len(parsed), len(chunk)):
                         corrected_entries.append(chunk[k])
-                    corrected_entries.extend(parsed[:len(chunk)])
                 elif len(parsed) > len(chunk):
                     # 超過分は無視（元のチャンク数に合わせる）
                     corrected_entries.extend(parsed[:len(chunk)])
