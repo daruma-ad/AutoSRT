@@ -115,6 +115,56 @@ def entries_to_srt(entries: List[SubtitleEntry]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# 短い字幕の結合
+# ---------------------------------------------------------------------------
+def merge_short_entries(
+    entries: List[SubtitleEntry],
+    min_chars: int = 5,
+) -> List[SubtitleEntry]:
+    """
+    指定文字数未満の短い字幕エントリを次のエントリと結合する。
+
+    Parameters
+    ----------
+    entries : 字幕エントリのリスト
+    min_chars : この文字数未満のエントリを結合対象とする
+
+    Returns
+    -------
+    List[SubtitleEntry] : 結合後のリスト
+    """
+    if not entries:
+        return entries
+
+    merged: List[SubtitleEntry] = []
+    i = 0
+
+    while i < len(entries):
+        current = entries[i]
+
+        # 現在のエントリが短い場合、次のエントリと結合
+        if len(current.text.strip()) < min_chars and i + 1 < len(entries):
+            next_entry = entries[i + 1]
+            combined = SubtitleEntry(
+                index=current.index,
+                start=current.start,
+                end=next_entry.end,
+                text=current.text.strip() + next_entry.text.strip(),
+            )
+            merged.append(combined)
+            i += 2  # 2つ分スキップ
+        else:
+            merged.append(current)
+            i += 1
+
+    # インデックスを振り直す
+    for idx, entry in enumerate(merged, 1):
+        entry.index = idx
+
+    return merged
+
+
+# ---------------------------------------------------------------------------
 # チャンク分割
 # ---------------------------------------------------------------------------
 def chunk_entries(
@@ -162,11 +212,13 @@ def build_system_prompt(
     if max_chars_per_line > 0:
         prompt += f"""
 5. **インテリジェントな改行**:
-   - 1行が **{max_chars_per_line}文字** を超える場合は、読みやすさを考慮して適切に改行（\n）を入れるか、または2行に分割してください。
+   - 1行が **{max_chars_per_line}文字** を超える場合は、読みやすさを考慮して適切な位置で2行に分けてください。
    - 改行を入れる際は、文節や意味の区切り（助詞「は」「が」「を」「に」の直後、または読点の位置など）を優先してください。
    - 単語の途中（例：「コンピュ」と「ータ」の間）での不自然な改行は絶対に避けてください。
-   - 1つの字幕エントリは最大2行までに収めてください。
+   - **1つの字幕エントリは必ず最大2行まで（改行は1つまで）にしてください。3行以上は絶対に禁止です。**
 """
+
+
     else:
         prompt += """
 5. **不自然な改行・分割の修正**: 文節の途中で不自然に区切られている場合は、自然な位置で区切り直してください。
@@ -224,7 +276,7 @@ def call_llm(
     ----------
     system_prompt : システムプロンプト（校正ルール等）
     user_prompt : ユーザープロンプト（SRT チャンク）
-    model : Gemini モデル名（デフォルト: gemini-2.0-flash）
+    model : Gemini モデル名（デフォルト: gemini-2.5-flash）
     api_key : Gemini API キー
     """
     import google.generativeai as genai
@@ -235,7 +287,7 @@ def call_llm(
 
     genai.configure(api_key=key)
 
-    model_name = model or "gemini-2.0-flash"
+    model_name = model or "gemini-2.5-flash"
     gemini_model = genai.GenerativeModel(
         model_name=model_name,
         system_instruction=system_prompt,
@@ -307,6 +359,7 @@ def process_srt_correction(
     api_key: Optional[str] = None,
     chunk_size: int = 30,
     max_chars_per_line: int = 0,
+    min_merge_chars: int = 0,
     progress_callback=None,
 ) -> CorrectionResult:
     """
@@ -321,6 +374,7 @@ def process_srt_correction(
     api_key : API キー
     chunk_size : チャンクサイズ
     max_chars_per_line : 1行あたりの最大文字数（0の場合は改行なし）
+    min_merge_chars : この文字数未満の短い字幕を次と結合（0の場合は結合なし）
     progress_callback : 進捗コールバック関数 (current, total) -> None
 
     Returns
@@ -332,6 +386,10 @@ def process_srt_correction(
 
     if not original_entries:
         raise ValueError("SRT ファイルに字幕エントリが見つかりませんでした。")
+
+    # 短い字幕の結合（前処理）
+    if min_merge_chars > 0:
+        original_entries = merge_short_entries(original_entries, min_merge_chars)
 
     # チャンク分割
     chunks = chunk_entries(original_entries, chunk_size)
@@ -363,6 +421,12 @@ def process_srt_correction(
                     if entry.index in chunk_map:
                         entry.start = chunk_map[entry.index].start
                         entry.end = chunk_map[entry.index].end
+                    # リテラル "\n" を実際の改行に変換
+                    entry.text = entry.text.replace("\\n", "\n")
+                    # 3行以上防止: 改行が2つ以上ある場合は最初の1つだけ残す
+                    text_lines = entry.text.split("\n")
+                    if len(text_lines) > 2:
+                        entry.text = text_lines[0] + "\n" + "".join(text_lines[1:])
                 corrected_entries.extend(parsed)
             else:
                 # パース失敗時は元のエントリをそのまま使用

@@ -655,13 +655,27 @@ with tab2:
 
     col_llm1, col_llm2 = st.columns(2)
 
+    # モデル選択肢の定義
+    MODEL_OPTIONS = {
+        "gemini-2.5-flash": "⚡ Gemini 2.5 Flash（高速・低コスト・推奨）",
+        "gemini-2.5-flash-lite": "💨 Gemini 2.5 Flash-Lite（最速・最安）",
+        "gemini-2.5-pro": "🧠 Gemini 2.5 Pro（最高精度・複雑な専門用語向け）",
+        "gemini-3-flash-preview": "🆕 Gemini 3 Flash Preview（次世代・プレビュー）",
+        "gemini-3.1-pro-preview": "🆕 Gemini 3.1 Pro Preview（最新最強・プレビュー）",
+    }
+
     with col_llm1:
-        llm_model = st.text_input(
-            "モデル名",
-            value="gemini-2.0-flash",
-            key="llm_model",
-            help="使用する Gemini モデル名を入力してください。",
+        selected_label = st.selectbox(
+            "🤖 AIモデル",
+            options=list(MODEL_OPTIONS.values()),
+            index=0,
+            key="llm_model_select",
+            help="字幕校正に使用するGeminiモデルを選択してください。",
         )
+        # ラベルからモデル名を逆引き
+        label_to_model = {v: k for k, v in MODEL_OPTIONS.items()}
+        llm_model = label_to_model[selected_label]
+
 
     with col_llm2:
         chunk_size = st.slider(
@@ -697,6 +711,28 @@ with tab2:
             key="max_chars_per_line",
         )
 
+    st.markdown("---")
+    st.markdown("### 🔗 字幕エントリの結合設定")
+    col_merge1, col_merge2 = st.columns(2)
+    with col_merge1:
+        enable_merge = st.checkbox(
+            "短い字幕を次の字幕と結合する",
+            value=False,
+            help="指定文字数未満の短い字幕を、次の字幕と自動的に結合します。タイムスタンプも連結されます。",
+            key="enable_merge",
+        )
+    with col_merge2:
+        min_merge_chars = st.slider(
+            "結合対象の最小文字数",
+            min_value=2,
+            max_value=10,
+            value=5,
+            step=1,
+            disabled=not enable_merge,
+            help="この文字数未満の字幕エントリが結合対象になります。",
+            key="min_merge_chars",
+        )
+
     # API キーの取得
     api_key = _get_api_key()
 
@@ -727,6 +763,7 @@ with tab2:
                     api_key=api_key,
                     chunk_size=chunk_size,
                     max_chars_per_line=max_chars_per_line if enable_line_break else 0,
+                    min_merge_chars=min_merge_chars if enable_merge else 0,
                     progress_callback=update_progress,
                 )
 
