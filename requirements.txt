@@ -1,0 +1,7 @@
+streamlit>=1.30.0
+numpy>=1.24.0
+scipy>=1.10.0
+ffmpeg-python>=0.2.0
+pysrt>=1.1.2
+google-generativeai>=0.8.0
+lxml>=4.9.0
