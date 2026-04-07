@@ -390,40 +390,103 @@ with tab1:
     st.markdown("---")
     st.markdown("### ⚙️ パラメータ設定")
 
+    # --- プリセット定義 ---
+    PRESETS = {
+        "⚡ ジェットカット": {"threshold": 8.0, "min_silence": 100, "padding": 33},
+        "🎙️ スタンダード": {"threshold": 5.0, "min_silence": 167, "padding": 67},
+        "🎬 シネマティック": {"threshold": 3.0, "min_silence": 500, "padding": 200},
+    }
+
+    # 初回のみデフォルト値をセッションステートに設定
+    if "threshold" not in st.session_state:
+        st.session_state["threshold"] = 5.0
+    if "min_silence" not in st.session_state:
+        st.session_state["min_silence"] = 167
+    if "padding" not in st.session_state:
+        st.session_state["padding"] = 67
+
+    def _on_preset_change():
+        """プリセット変更時にスライダー値を一括更新"""
+        preset_name = st.session_state.get("cut_preset", "🎙️ スタンダード")
+        if preset_name in PRESETS:
+            vals = PRESETS[preset_name]
+            st.session_state["threshold"] = vals["threshold"]
+            st.session_state["min_silence"] = vals["min_silence"]
+            st.session_state["padding"] = vals["padding"]
+
+    def _ms_to_frames_text(ms: int) -> str:
+        """ミリ秒を主要フレームレートのフレーム数に換算した文字列を返す"""
+        f_2997 = ms / 1000 * 29.97
+        f_60 = ms / 1000 * 60
+        f_24 = ms / 1000 * 24
+        return f"📐 29.97fps → **{f_2997:.1f}f** ｜ 60fps → **{f_60:.1f}f** ｜ 24fps → **{f_24:.1f}f**"
+
+    # --- プリセット選択 ---
+    st.markdown("#### 🎯 カットスタイル")
+    st.radio(
+        "カットスタイルを選択",
+        options=list(PRESETS.keys()),
+        index=1,  # デフォルト: スタンダード
+        horizontal=True,
+        key="cut_preset",
+        on_change=_on_preset_change,
+        label_visibility="collapsed",
+    )
+
+    # プリセットの説明
+    preset_descriptions = {
+        "⚡ ジェットカット": "💬 テンポ重視。無音をほぼ全て除去し、テキパキした印象に（YouTube・解説動画向け）",
+        "🎙️ スタンダード": "💬 自然な「間」を少し残すバランス型（インタビュー・1人語り向け）",
+        "🎬 シネマティック": "💬 余韻や沈黙を大切にする控えめなカット（ドキュメンタリー・感動系向け）",
+    }
+    current_preset = st.session_state.get("cut_preset", "🎙️ スタンダード")
+    st.caption(preset_descriptions.get(current_preset, ""))
+
+    st.markdown("#### 🔧 詳細パラメータ")
+
     col_p1, col_p2, col_p3 = st.columns(3)
 
+    # --- 音量閾値 ---
     with col_p1:
         threshold_pct = st.slider(
             "🔊 音量閾値（最大RMSに対する%）",
             min_value=1.0,
             max_value=30.0,
-            value=5.0,
             step=0.5,
             key="threshold",
             help="この値より小さいRMS値の区間を「無音」と判定します。値を大きくするとカットされる区間が増えます。",
         )
+        # 音量閾値の補足説明（動的）
+        if threshold_pct <= 3.0:
+            st.caption("🟢 控えめ — 明確な無音のみカット")
+        elif threshold_pct <= 7.0:
+            st.caption("🟡 標準 — バランスの取れたカット")
+        else:
+            st.caption("🔴 積極的 — 小さな音もカット対象に")
 
+    # --- 最小無音時間 ---
     with col_p2:
         min_silence_ms = st.slider(
             "⏱️ 最小無音時間（ミリ秒）",
             min_value=10,
             max_value=3000,
-            value=167,
             step=1,
             key="min_silence",
-            help="無音と判定する最低持続時間。29.97fps で 5フレーム ≈ 167ms、30fps で 5フレーム ≈ 167ms。",
+            help="この時間より短い無音はカットされません。",
         )
+        st.caption(_ms_to_frames_text(min_silence_ms))
 
+    # --- パディング ---
     with col_p3:
         padding_ms = st.slider(
             "🔲 パディング（ミリ秒）",
             min_value=0,
             max_value=500,
-            value=67,
             step=1,
             key="padding",
-            help="カット前後に残す余白。29.97fps で 2フレーム ≈ 67ms。発話の頭切れ・尻切れを防ぎます。",
+            help="カット前後に残す余白。発話の頭切れ・尻切れを防ぎます。",
         )
+        st.caption(_ms_to_frames_text(padding_ms))
 
     st.markdown("---")
 
