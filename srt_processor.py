@@ -146,6 +146,7 @@ def chunk_entries(
 def build_system_prompt(
     context: str = "",
     terminology: str = "",
+    max_chars_per_line: int = 0,
 ) -> str:
     """LLM に送信するシステムプロンプトを構築"""
     prompt = """あなたは日本語字幕の校正を行うプロフェッショナルな編集者です。
@@ -154,10 +155,24 @@ def build_system_prompt(
 ## 校正ルール
 1. **誤字脱字の修正**: 音声認識による誤変換を文脈から推測し、正確な表記に修正してください。
 2. **表記ゆれの統一**: 同じ単語・フレーズが異なる表記で現れている場合は統一してください。
-3. **不自然な改行・分割の修正**: 文節の途中で不自然に区切られている場合は、自然な位置で区切り直してください。
-4. **句読点の整理**: 不要な句読点の削除・適切な位置への追加を行ってください。
-5. **フィラーワードの処理**: 「えー」「あの」「まあ」等は、文脈上不要であれば除去してください。ただし話し手の個性として重要な場合は残してください。
+3. **句読点の整理**: 不要な句読点の削除・適切な位置への追加を行ってください。
+4. **フィラーワードの処理**: 「えー」「あの」「まあ」等は、文脈上不要であれば除去してください。ただし話し手の個性として重要な場合は残してください。
+"""
 
+    if max_chars_per_line > 0:
+        prompt += f"""
+5. **インテリジェントな改行**:
+   - 1行が **{max_chars_per_line}文字** を超える場合は、読みやすさを考慮して適切に改行（\n）を入れるか、または2行に分割してください。
+   - 改行を入れる際は、文節や意味の区切り（助詞「は」「が」「を」「に」の直後、または読点の位置など）を優先してください。
+   - 単語の途中（例：「コンピュ」と「ータ」の間）での不自然な改行は絶対に避けてください。
+   - 1つの字幕エントリは最大2行までに収めてください。
+"""
+    else:
+        prompt += """
+5. **不自然な改行・分割の修正**: 文節の途中で不自然に区切られている場合は、自然な位置で区切り直してください。
+"""
+
+    prompt += """
 ## 重要な制約
 - **タイムスタンプは一切変更しないでください。** テキスト部分のみを校正します。
 - 各エントリの番号（インデックス）は維持してください。
@@ -291,6 +306,7 @@ def process_srt_correction(
     model: Optional[str] = None,
     api_key: Optional[str] = None,
     chunk_size: int = 30,
+    max_chars_per_line: int = 0,
     progress_callback=None,
 ) -> CorrectionResult:
     """
@@ -304,6 +320,7 @@ def process_srt_correction(
     model : LLM モデル名
     api_key : API キー
     chunk_size : チャンクサイズ
+    max_chars_per_line : 1行あたりの最大文字数（0の場合は改行なし）
     progress_callback : 進捗コールバック関数 (current, total) -> None
 
     Returns
@@ -320,7 +337,7 @@ def process_srt_correction(
     chunks = chunk_entries(original_entries, chunk_size)
 
     # システムプロンプト構築
-    system_prompt = build_system_prompt(context, terminology)
+    system_prompt = build_system_prompt(context, terminology, max_chars_per_line)
 
     # チャンクごとに LLM 呼び出し
     corrected_entries: List[SubtitleEntry] = []

@@ -674,6 +674,29 @@ with tab2:
             help="LLM に一度に送信する字幕エントリの数です。大きくすると文脈の理解が良くなりますが、トークン制限に注意してください。",
         )
 
+    # --- 校正オプション ---
+    st.markdown("---")
+    st.markdown("### 🖋️ テロップの表示設定")
+    col_opt1, col_opt2 = st.columns(2)
+    with col_opt1:
+        enable_line_break = st.checkbox(
+            "自動的に改行を挿入する",
+            value=True,
+            help="1行が長い場合に、文脈的に適切な位置で自動的に改行（\\n）を挿入します。",
+            key="enable_line_break",
+        )
+    with col_opt2:
+        max_chars_per_line = st.slider(
+            "1行あたりの最大文字数",
+            min_value=10,
+            max_value=30,
+            value=15,
+            step=1,
+            disabled=not enable_line_break,
+            help="この文字数を超える場合、AIが改行点を判断します。通常は15〜20文字程度が推奨されます。",
+            key="max_chars_per_line",
+        )
+
     # API キーの取得
     api_key = _get_api_key()
 
@@ -703,6 +726,7 @@ with tab2:
                     model=llm_model,
                     api_key=api_key,
                     chunk_size=chunk_size,
+                    max_chars_per_line=max_chars_per_line if enable_line_break else 0,
                     progress_callback=update_progress,
                 )
 
