@@ -20,6 +20,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.io import wavfile
 from lxml import etree
+import imageio_ffmpeg
 
 
 # ---------------------------------------------------------------------------
@@ -93,8 +94,9 @@ def load_audio_as_wav(audio_bytes: bytes, filename: str) -> Tuple[int, np.ndarra
         tmp_in.flush()
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp_out:
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
             cmd = [
-                "ffmpeg", "-y", "-i", tmp_in.name,
+                ffmpeg_exe, "-y", "-i", tmp_in.name,
                 "-ac", "1", "-ar", "16000", "-f", "wav",
                 tmp_out.name,
             ]
