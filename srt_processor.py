@@ -453,18 +453,27 @@ def process_srt_correction(
 
                 # LLM がインデックスを 1 から振り直してしまった場合への対策（オフセット自動補正）
                 if index_matched < len(parsed) * 0.5 and parsed and chunk:
-                    offset = chunk[0].index - parsed[0].index
-                    if offset != 0:
+                    # タイムスタンプ（HH:MM:SS）を利用して確実なオフセットを計算する
+                    # 最初の数文字（秒まで）が一致するエントリを探す
+                    chunk_time_map = {e.start[:8]: e for e in chunk}
+                    best_offset = None
+                    for p in parsed:
+                        t = p.start[:8]
+                        if t in chunk_time_map:
+                            best_offset = chunk_time_map[t].index - p.index
+                            break
+                    
+                    if best_offset is not None and best_offset != 0:
                         # 全エントリにオフセットを適用してもう一度マッチングテスト
-                        offset_matched = sum(1 for e in parsed if (e.index + offset) in chunk_index_map)
+                        offset_matched = sum(1 for e in parsed if (e.index + best_offset) in chunk_index_map)
                         if offset_matched > index_matched:
                             # オフセット適用を採用
                             for entry in parsed:
-                                entry.index += offset
+                                entry.index += best_offset
                             index_matched = offset_matched
 
                 if index_matched >= len(parsed) * 0.5:
-                    # --- インデックスベース（推奨） ---
+                    # --- インデックスベース（安全・推奨） ---
                     # 校正済みエントリにタイムスタンプを復元
                     corrected_map = {}
                     for entry in parsed:
@@ -481,22 +490,18 @@ def process_srt_correction(
                         else:
                             corrected_entries.append(orig)
                 else:
-                    # --- 位置ベースのフォールバック ---
-                    # LLM がインデックスを振り直した場合（例: 常に1から開始）
-                    for j, entry in enumerate(parsed):
-                        if j < len(chunk):
+                    # --- 位置ベースのフォールバック (条件付き) ---
+                    # エントリ数が完全に一致する場合のみ安全とみなす
+                    if len(parsed) == len(chunk):
+                        for j, entry in enumerate(parsed):
                             entry.start = chunk[j].start
                             entry.end = chunk[j].end
                             entry.index = chunk[j].index
-
-                    if len(parsed) < len(chunk):
                         corrected_entries.extend(parsed)
-                        for k in range(len(parsed), len(chunk)):
-                            corrected_entries.append(chunk[k])
-                    elif len(parsed) > len(chunk):
-                        corrected_entries.extend(parsed[:len(chunk)])
                     else:
-                        corrected_entries.extend(parsed)
+                        # 危険：インデックスが合わず、数も違う場合、タイムコードが破綻するため
+                        # このチャンクのAI校正を破棄し、安全な原文（未校正）を採用する
+                        corrected_entries.extend(chunk)
             else:
                 # パース失敗時は元のエントリをそのまま使用
                 corrected_entries.extend(chunk)
