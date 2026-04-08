@@ -90,6 +90,14 @@ def _manual_parse_srt(content: str) -> List[SubtitleEntry]:
     # 改行コードを統一（LLM の応答に \r\n が含まれると境界検出が壊れるため）
     content = content.replace("\r\n", "\n").replace("\r", "\n")
 
+    # LLMが改行を忘れ、前のエントリのテキストの直後に「次のインデックス番号」を繋げてしまった場合への対策
+    # 例: 「...休業給付、281\n00:09:53...」 -> 「...休業給付、\n\n281\n00:09:53...」
+    content = re.sub(
+        r'([^\n\d])(\d+\s*\n\d{2}:\d{2}:\d{2}[,\.]\d{3}\s*-->)',
+        r'\1\n\n\2',
+        content
+    )
+
     pattern = re.compile(
         r"(\d+)\s*\n"
         r"(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*\n"
@@ -438,11 +446,22 @@ def process_srt_correction(
                     text_lines = entry.text.split("\n")
                     if len(text_lines) > 2:
                         entry.text = text_lines[0] + "\n" + "".join(text_lines[1:])
-
                 # タイムスタンプ復元: インデックスベースのマッチング
                 # LLM がエントリをスキップ・結合・並べ替えしても正確に復元できる
                 chunk_index_map = {e.index: e for e in chunk}
                 index_matched = sum(1 for e in parsed if e.index in chunk_index_map)
+
+                # LLM がインデックスを 1 から振り直してしまった場合への対策（オフセット自動補正）
+                if index_matched < len(parsed) * 0.5 and parsed and chunk:
+                    offset = chunk[0].index - parsed[0].index
+                    if offset != 0:
+                        # 全エントリにオフセットを適用してもう一度マッチングテスト
+                        offset_matched = sum(1 for e in parsed if (e.index + offset) in chunk_index_map)
+                        if offset_matched > index_matched:
+                            # オフセット適用を採用
+                            for entry in parsed:
+                                entry.index += offset
+                            index_matched = offset_matched
 
                 if index_matched >= len(parsed) * 0.5:
                     # --- インデックスベース（推奨） ---
