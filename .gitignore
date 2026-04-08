@@ -22,3 +22,15 @@ Thumbs.db
 *.wav
 waveform.png
 /tmp/
+
+# Doc/PR files (Private)
+blog_autosrt.md
+blog_autosrt_v2.md
+development_log.md
+development_prompts.md
+FOR_OTHERS.md
+master_generation_prompt.md
+pr_autosrt.md
+blog_autosrt_ダイジェスト.md
+*.md
+!README.md
